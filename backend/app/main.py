@@ -291,3 +291,41 @@ def solve_vrp_ortools(origin: dict, orders: list[RouteStop], vehicles: list[Vehi
 
     results = [r for r in results if r.orders]
     return results if results else solve_vrp_greedy(origin, orders, vehicles)
+    # --- DEFAULT ADMIN SEED (optional, ใช้กับ ENV) ---
+import os
+from sqlmodel import select
+from .db import get_session
+from .models import User
+from passlib.context import CryptContext
+pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def ensure_default_admin():
+    admin_u = os.getenv("ADMIN_USERNAME")
+    admin_p = os.getenv("ADMIN_PASSWORD")
+    if not admin_u or not admin_p:
+        return
+    # เปิด session แบบสั้น ๆ จาก dependency
+    try:
+        gen = get_session()
+        session = next(gen)
+        try:
+            exists = session.exec(select(User).where(User.username == admin_u)).first()
+            if not exists:
+                user = User(username=admin_u, hashed_password=pwd_ctx.hash(admin_p))
+                session.add(user)
+                session.commit()
+                print(f"[admin-seed] created default admin: {admin_u}")
+            else:
+                print(f"[admin-seed] admin exists: {admin_u}")
+        finally:
+            try:
+                next(gen)
+            except StopIteration:
+                pass
+    except Exception as e:
+        print("[admin-seed] skip due to error:", e)
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+    ensure_default_admin()
