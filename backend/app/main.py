@@ -31,11 +31,9 @@ app.add_middleware(
 )
 
 # --- Serve frontend ---
-import os
 from fastapi.staticfiles import StaticFiles
+import os
 
-# เดิม: "..", "..", "frontend"  (ผิดตำแหน่ง)
-# ใหม่: ถอยขึ้น 1 ชั้นจาก backend/app → backend → ไปที่ backend/frontend
 FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 # ----------------------
