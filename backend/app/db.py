@@ -1,4 +1,4 @@
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import SQLModel, Session, create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
