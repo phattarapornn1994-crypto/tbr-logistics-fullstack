@@ -22,6 +22,12 @@ VRP_ENGINE = os.getenv("VRP_ENGINE", "ortools")
 
 app = FastAPI(title="TBR Logistics API")
 
+from fastapi.responses import RedirectResponse
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/frontend")
+    
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
