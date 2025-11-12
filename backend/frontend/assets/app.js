@@ -1,252 +1,359 @@
-let TOKEN = localStorage.getItem('jwt') || '';
+// assets/app.js
 
-const API = () => window.API_BASE.replace(/\/$/, '')
-const qs = (s, el=document) => el.querySelector(s)
-const qsa = (s, el=document) => [...el.querySelectorAll(s)]
-const fmt = (n, d=2) => Number(n||0).toFixed(d)
-const authHeader = () => TOKEN ? {'Authorization': 'Bearer '+TOKEN} : {}
+// ===== Utilities =====
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-function openTab(name){
-  qsa('.tab').forEach(el=>el.classList.remove('active'))
-  qs('#tab-'+name).classList.add('active')
-  if(name==='result'){ initMap(); renderResult() }
-  if(name==='master'){ loadCustomers(); loadVehicles() }
+let TOKEN = localStorage.getItem("tbr_token") || "";
+
+function setStatus(msg) {
+  const el = $("#auth_status");
+  if (el) el.textContent = msg || "";
 }
 
-async function register(){
-  const username = qs('#auth_username').value.trim()
-  const password = qs('#auth_password').value
-  const res = await fetch(`${API()}/auth/register`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username,password})})
-  const data = await res.json()
-  if(res.ok){ TOKEN = data.access_token; localStorage.setItem('jwt', TOKEN); qs('#auth_status').textContent='สมัครสำเร็จ และเข้าสู่ระบบแล้ว' }
-  else { qs('#auth_status').textContent = data.detail || 'สมัครไม่สำเร็จ' }
-}
-async function login(){
-  const username = qs('#auth_username').value.trim()
-  const password = qs('#auth_password').value
-  const res = await fetch(`${API()}/auth/login`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username,password})})
-  const data = await res.json()
-  if(res.ok){ TOKEN = data.access_token; localStorage.setItem('jwt', TOKEN); qs('#auth_status').textContent='เข้าสู่ระบบสำเร็จ' }
-  else { qs('#auth_status').textContent = data.detail || 'เข้าสู่ระบบไม่สำเร็จ' }
-}
-
-// Customers
-async function loadCustomers(){
-  const q = qs('#cust_search')?.value || ''
-  const res = await fetch(`${API()}/customers?q=${encodeURIComponent(q)}`)
-  const rows = await res.json()
-  const tb = qs('#customers_tbody'); tb.innerHTML=''
-  rows.forEach(c=>{
-    const tr=document.createElement('tr')
-    tr.innerHTML = `<td>${c.code}</td><td>${c.name}</td><td>${c.type||''}</td><td>${fmt(c.lat,4)}, ${fmt(c.lng,4)}</td>
-    <td class='text-right'><button class='btn' onclick="fillCustomer('${c.code}')">แก้ไข</button>
-    <button class='btn' onclick="delCustomer('${c.code}')">ลบ</button></td>`
-    tb.appendChild(tr)
-  })
-}
-async function saveCustomer(){
-  const payload = {
-    code: val('cust_code'), name: val('cust_name'), contact: val('cust_contact'),
-    type: val('cust_type'), hours: val('cust_hours'), note: val('cust_note'), addr: val('cust_addr'),
-    lat: parseFloat(val('cust_lat')), lng: parseFloat(val('cust_lng'))
+async function api(path, { method = "GET", json, auth = false } = {}) {
+  const url = `${window.API_BASE}${path}`;
+  const headers = { "Content-Type": "application/json" };
+  if (auth && TOKEN) headers["Authorization"] = `Bearer ${TOKEN}`;
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: json ? JSON.stringify(json) : undefined,
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText} :: ${txt}`);
   }
-  if(!payload.code || !payload.name){ alert('กรุณากรอกรหัสและชื่อ'); return }
-  const res = await fetch(`${API()}/customers`, {method:'POST', headers:{'Content-Type':'application/json', ...authHeader()}, body: JSON.stringify(payload)})
-  if(!res.ok){ const d=await res.json(); alert(d.detail||'บันทึกไม่สำเร็จ (ต้องเข้าสู่ระบบ)'); return }
-  clearCustomerForm(); loadCustomers(); rebuildPlanCustomerOptions()
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("application/json") ? res.json() : res.text();
 }
-async function delCustomer(code){
-  if(!confirm('ลบลูกค้า '+code+' ?')) return
-  const res = await fetch(`${API()}/customers/${code}`, {method:'DELETE', headers:{...authHeader()}})
-  if(!res.ok){ const d=await res.json(); alert(d.detail||'ลบไม่สำเร็จ (ต้องเข้าสู่ระบบ)'); return }
-  loadCustomers(); rebuildPlanCustomerOptions()
-}
-async function fillCustomer(code){
-  const res = await fetch(`${API()}/customers?q=${encodeURIComponent(code)}`)
-  const [c] = await res.json(); if(!c) return
-  setVal('cust_code', c.code); setVal('cust_name', c.name); setVal('cust_contact', c.contact||'')
-  setVal('cust_type', c.type||''); setVal('cust_hours', c.hours||''); setVal('cust_note', c.note||'')
-  setVal('cust_addr', c.addr||''); setVal('cust_lat', c.lat); setVal('cust_lng', c.lng)
-}
-function clearCustomerForm(){ ['cust_code','cust_name','cust_contact','cust_type','cust_hours','cust_note','cust_addr','cust_lat','cust_lng'].forEach(id=>setVal(id,'')) }
 
-// Vehicles
-async function loadVehicles(){
-  const q = qs('#veh_search')?.value || ''
-  const res = await fetch(`${API()}/vehicles?q=${encodeURIComponent(q)}`)
-  const rows = await res.json()
-  const tb = qs('#vehicles_tbody'); tb.innerHTML=''
-  rows.forEach(v=>{
-    const tr=document.createElement('tr')
-    tr.innerHTML = `<td>${v.plate}</td><td>${v.type||''}</td><td>${fmt(v.capW)}/${fmt(v.capV)}</td><td>${v.owner||''}</td><td>${fmt(v.costPerKm)}</td><td><span class='badge'>${v.status}</span></td>
-    <td class='text-right'><button class='btn' onclick="fillVehicle('${v.plate}')">แก้ไข</button>
-    <button class='btn' onclick="delVehicle('${v.plate}')">ลบ</button></td>`
-    tb.appendChild(tr)
-  })
+// ===== Tabs =====
+function openTab(name) {
+  $$(".tab").forEach((x) => x.classList.remove("active"));
+  $(`#tab-${name}`)?.classList.add("active");
 }
-async function saveVehicle(){
-  const payload = { plate: val('veh_plate'), type: val('veh_type'), capW: +val('veh_cap_w')||0, capV:+val('veh_cap_v')||0, owner: val('veh_owner'), costPerKm:+val('veh_cost')||0, status: val('veh_status') }
-  if(!payload.plate){ alert('ทะเบียนรถจำเป็น'); return }
-  const res = await fetch(`${API()}/vehicles`, {method:'POST', headers:{'Content-Type':'application/json', ...authHeader()}, body: JSON.stringify(payload)})
-  if(!res.ok){ const d=await res.json(); alert(d.detail||'บันทึกไม่สำเร็จ (ต้องเข้าสู่ระบบ)'); return }
-  clearVehicleForm(); loadVehicles()
-}
-async function delVehicle(plate){
-  if(!confirm('ลบรถ '+plate+' ?')) return
-  const res = await fetch(`${API()}/vehicles/${plate}`, {method:'DELETE', headers:{...authHeader()}})
-  if(!res.ok){ const d=await res.json(); alert(d.detail||'ลบไม่สำเร็จ (ต้องเข้าสู่ระบบ)'); return }
-  loadVehicles()
-}
-async function fillVehicle(plate){
-  const res = await fetch(`${API()}/vehicles?q=${encodeURIComponent(plate)}`)
-  const [v] = await res.json(); if(!v) return
-  setVal('veh_plate', v.plate); setVal('veh_type', v.type||''); setVal('veh_cap_w', v.capW); setVal('veh_cap_v', v.capV)
-  setVal('veh_owner', v.owner||''); setVal('veh_cost', v.costPerKm); setVal('veh_status', v.status)
-}
-function clearVehicleForm(){ ['veh_plate','veh_type','veh_cap_w','veh_cap_v','veh_owner','veh_cost'].forEach(id=>setVal(id,'')); setVal('veh_status','ready') }
 
-// Planning
-function addPlanRow(){
-  const tr=document.createElement('tr')
+// ===== Auth =====
+async function register() {
+  try {
+    const username = $("#auth_username").value.trim();
+    const password = $("#auth_password").value;
+    if (!username || !password) return setStatus("กรอก username/password");
+    const data = await api("/auth/register", {
+      method: "POST",
+      json: { username, password },
+    });
+    TOKEN = data.access_token;
+    localStorage.setItem("tbr_token", TOKEN);
+    setStatus("สมัครสำเร็จและล็อกอินแล้ว");
+  } catch (e) {
+    setStatus("สมัครไม่ได้: " + e.message);
+  }
+}
+
+async function login() {
+  try {
+    const username = $("#auth_username").value.trim();
+    const password = $("#auth_password").value;
+    if (!username || !password) return setStatus("กรอก username/password");
+    const data = await api("/auth/login", {
+      method: "POST",
+      json: { username, password },
+    });
+    TOKEN = data.access_token;
+    localStorage.setItem("tbr_token", TOKEN);
+    setStatus("ล็อกอินสำเร็จ");
+  } catch (e) {
+    setStatus("ล็อกอินไม่ได้: " + e.message);
+  }
+}
+
+// ===== Customers =====
+async function loadCustomers() {
+  const q = $("#cust_search")?.value || "";
+  const rows = await api(`/customers${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  const tb = $("#customers_tbody");
+  tb.innerHTML = "";
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.code}</td>
+      <td>${r.name || ""}</td>
+      <td>${r.type || ""}</td>
+      <td>${(r.lat ?? "")}, ${(r.lng ?? "")}</td>
+      <td><button class="btn danger" onclick="deleteCustomer('${r.code}')">ลบ</button></td>
+    `;
+    tb.appendChild(tr);
+  });
+}
+
+async function saveCustomer() {
+  try {
+    const payload = {
+      code: $("#cust_code").value.trim(),
+      name: $("#cust_name").value.trim(),
+      contact: $("#cust_contact").value.trim(),
+      type: $("#cust_type").value.trim(),
+      hours: $("#cust_hours").value.trim(),
+      note: $("#cust_note").value.trim(),
+      addr: $("#cust_addr").value.trim(),
+      lat: parseFloat($("#cust_lat").value || "0"),
+      lng: parseFloat($("#cust_lng").value || "0"),
+    };
+    if (!payload.code) return alert("กรอกรหัสลูกค้า");
+    await api("/customers", { method: "POST", json: payload, auth: true });
+    await loadCustomers();
+    alert("บันทึกแล้ว");
+  } catch (e) {
+    alert("บันทึกลูกค้าไม่ได้: " + e.message);
+  }
+}
+
+async function deleteCustomer(code) {
+  if (!confirm(`ลบลูกค้า ${code}?`)) return;
+  try {
+    await api(`/customers/${encodeURIComponent(code)}`, { method: "DELETE", auth: true });
+    await loadCustomers();
+  } catch (e) {
+    alert("ลบไม่ได้: " + e.message);
+  }
+}
+
+async function seedCustomers() {
+  const samples = [
+    { code: "C001", name: "ร้าน A", lat: 13.75, lng: 100.55 },
+    { code: "C002", name: "ร้าน B", lat: 13.70, lng: 100.50 },
+    { code: "C003", name: "ร้าน C", lat: 13.78, lng: 100.60 },
+  ];
+  for (const s of samples) {
+    await api("/customers", { method: "POST", json: s, auth: true }).catch(()=>{});
+  }
+  await loadCustomers();
+}
+
+// ===== Vehicles =====
+async function loadVehicles() {
+  const q = $("#veh_search")?.value || "";
+  const rows = await api(`/vehicles${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  const tb = $("#vehicles_tbody");
+  tb.innerHTML = "";
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.plate}</td>
+      <td>${r.type || ""}</td>
+      <td>${r.capW || 0} / ${r.capV || 0}</td>
+      <td>${r.owner || ""}</td>
+      <td>${r.costPerKm || 0}</td>
+      <td>${r.status || ""}</td>
+      <td><button class="btn danger" onclick="deleteVehicle('${r.plate}')">ลบ</button></td>
+    `;
+    tb.appendChild(tr);
+  });
+}
+
+async function saveVehicle() {
+  try {
+    const payload = {
+      plate: $("#veh_plate").value.trim(),
+      type: $("#veh_type").value.trim(),
+      capW: parseFloat($("#veh_cap_w").value || "0"),
+      capV: parseFloat($("#veh_cap_v").value || "0"),
+      owner: $("#veh_owner").value.trim(),
+      costPerKm: parseFloat($("#veh_cost").value || "20"),
+      status: $("#veh_status").value,
+    };
+    if (!payload.plate) return alert("กรอกทะเบียนรถ");
+    await api("/vehicles", { method: "POST", json: payload, auth: true });
+    await loadVehicles();
+    alert("บันทึกแล้ว");
+  } catch (e) {
+    alert("บันทึกรถไม่ได้: " + e.message);
+  }
+}
+
+async function deleteVehicle(plate) {
+  if (!confirm(`ลบรถ ${plate}?`)) return;
+  try {
+    await api(`/vehicles/${encodeURIComponent(plate)}`, { method: "DELETE", auth: true });
+    await loadVehicles();
+  } catch (e) {
+    alert("ลบรถไม่ได้: " + e.message);
+  }
+}
+
+async function seedVehicles() {
+  const samples = [
+    { plate: "6W-001", type: "6W", capW: 12, capV: 30, owner: "OWN", costPerKm: 22, status: "ready" },
+    { plate: "10W-001", type: "10W", capW: 18, capV: 45, owner: "SUB", costPerKm: 28, status: "ready" },
+  ];
+  for (const s of samples) {
+    await api("/vehicles", { method: "POST", json: s, auth: true }).catch(()=>{});
+  }
+  await loadVehicles();
+}
+
+// ===== Plan =====
+function addPlanRow() {
+  const tb = $("#plan_lines");
+  const tr = document.createElement("tr");
   tr.innerHTML = `
-    <td><select class="input plan-customer-select"></select></td>
-    <td><input type="number" step="0.001" class="input plan-w" placeholder="ตัน"/></td>
-    <td><input type="number" step="0.001" class="input plan-v" placeholder="ลบ.ม."/></td>
-    <td><input class="input plan-mat" placeholder="สินค้า"/></td>
-    <td class="text-right"><button class="btn" onclick="this.closest('tr').remove()">ลบ</button></td>`
-  qs('#plan_lines').appendChild(tr)
-  rebuildPlanCustomerOptions()
-}
-async function rebuildPlanCustomerOptions(){
-  const res = await fetch(`${API()}/customers`)
-  const rows = await res.json()
-  qsa('.plan-customer-select').forEach(sel=>{
-    const v = sel.value
-    sel.innerHTML = `<option value="">เลือก</option>` + rows.map(c=>`<option value="${c.code}">${c.code} - ${c.name}</option>`).join('')
-    sel.value = v
-  })
-}
-async function analyzePlan(){
-  const name = val('plan_name') || ('แผน-'+new Date().toISOString().slice(0,10))
-  const date = val('plan_date') || new Date().toISOString().slice(0,10)
-  const originStr = val('plan_origin') || '13.7563,100.5018'
-  const [olat, olng] = originStr.split(',').map(Number)
-  const rows = qsa('#plan_lines tr').map(r=>{
-    const code = r.querySelector('.plan-customer-select').value
-    const w = +r.querySelector('.plan-w').value || 0
-    const v = +r.querySelector('.plan-v').value || 0
-    const mat = r.querySelector('.plan-mat').value || ''
-    if(!code) return null
-    return {customer_code: code, w, v, mat}
-  }).filter(Boolean)
-  if(!rows.length){ alert('กรุณาเพิ่มลูกค้าอย่างน้อย 1 แถว'); return }
-
-  const payload = { name, date, origin_lat: olat, origin_lng: olng, lines: rows }
-  const res = await fetch(`${API()}/plans/optimize`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)})
-  const plan = await res.json()
-  window._lastPlan = plan
-  openTab('result'); renderResult()
+    <td><input class="input plan_cust" placeholder="C001"/></td>
+    <td><input class="input plan_w" type="number" step="0.01" placeholder="ตัน"/></td>
+    <td><input class="input plan_v" type="number" step="0.01" placeholder="ลบ.ม."/></td>
+    <td><input class="input plan_mat" placeholder="ประเภทสินค้า"/></td>
+    <td><button class="btn danger" onclick="this.closest('tr').remove()">ลบ</button></td>
+  `;
+  tb.appendChild(tr);
 }
 
-// Result & Map
-let map, layer
-function initMap(){
-  if(map) return
-  map = L.map('map').setView([13.7563, 100.5018], 7)
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map)
-  layer = L.layerGroup().addTo(map)
-}
-function renderResult(){
-  if(!window._lastPlan){ qs('#routes_container').innerHTML = '<div class="text-sm text-gray-500">ยังไม่มีแผน</div>'; return }
-  layer.clearLayers()
-  const p = window._lastPlan
-  const Sdiv = qs('#plan_summary'); Sdiv.innerHTML=''
-  ;[
-    ['จำนวนรถ', p.routes.length],
-    ['ระยะทางรวม (กม.)', fmt(p.totalKm)],
-    ['ต้นทุนรวม (บาท)', fmt(p.totalCost)],
-    ['ปริมาณรวม (ตัน/ลบ.ม.)', `${fmt(p.totalW)}/${fmt(p.totalV)}`],
-  ].forEach(([k,v])=>{
-    const el=document.createElement('div'); el.className='p-3 rounded-xl border bg-white'
-    el.innerHTML=`<div class='text-xs text-gray-500'>${k}</div><div class='text-lg font-semibold'>${v}</div>`
-    Sdiv.appendChild(el)
-  })
+async function analyzePlan() {
+  try {
+    const name = $("#plan_name").value.trim() || "Plan";
+    const date = $("#plan_date").value || new Date().toISOString().slice(0,10);
+    const originTxt = $("#plan_origin").value.trim();
+    const [latStr, lngStr] = originTxt.split(",");
+    const origin_lat = parseFloat(latStr);
+    const origin_lng = parseFloat(lngStr);
 
-  const rc = qs('#routes_container'); rc.innerHTML=''
-  const depot = [p.origin_lat, p.origin_lng]
-  L.marker(depot).addTo(layer).bindPopup('คลังสินค้า')
-  let bounds=[depot]
-  p.routes.forEach((r,idx)=>{
-    const card=document.createElement('div'); card.className='border rounded-xl p-3 bg-white'
-    const listHtml = r.orders.map((o,i)=>`<li>${i+1}. ${o.code} – ${o.name} <span class='text-xs text-gray-500'>(${fmt(o.w)}t / ${fmt(o.v)}m³)</span></li>`).join('')
-    card.innerHTML = `
-      <div class='flex items-center justify-between'>
-        <div class='font-semibold'>Route #${idx+1} • รถ ${r.vehicle.plate} (${r.vehicle.type||''})</div>
-        <div class='text-sm'>ระยะทาง ~ <b>${fmt(r.distanceKm)}</b> กม. • ต้นทุน ~ <b>${fmt(r.cost)}</b> บาท</div>
-      </div>
-      <ol class='list-decimal ml-5 mt-2 space-y-1'>${listHtml}</ol>`
-    rc.appendChild(card)
-    const pts=[depot, ...r.orders.map(o=>[o.lat,o.lng]), depot]
-    L.polyline(pts).addTo(layer)
-    r.orders.forEach(o=> L.circleMarker([o.lat,o.lng],{radius:5}).addTo(layer).bindPopup(`${o.code} – ${o.name}`))
-    bounds.push(...pts)
-  })
-  if(bounds.length) map.fitBounds(bounds)
-}
+    const lines = [];
+    $$("#plan_lines tr").forEach((tr) => {
+      const tds = tr.querySelectorAll("td");
+      const code = tds[0].querySelector("input").value.trim();
+      const w = parseFloat(tds[1].querySelector("input").value || "0");
+      const v = parseFloat(tds[2].querySelector("input").value || "0");
+      const mat = tds[3].querySelector("input").value.trim();
+      if (code) lines.push({ customer_code: code, w, v, mat });
+    });
 
-// Export
-function toCSV(rows){
-  const esc=v=>`"${String(v??'').replaceAll('"','""')}"`
-  const keys=Object.keys(rows[0]||{})
-  const header=keys.map(esc).join(',')
-  const body=rows.map(r=>keys.map(k=>esc(r[k])).join(',')).join('\n')
-  return header+'\n'+body
-}
-async function exportRaw(kind){
-  let rows=[]
-  if(kind==='customers'){ rows = await (await fetch(`${API()}/customers`)).json() }
-  if(kind==='vehicles'){ rows = await (await fetch(`${API()}/vehicles`)).json() }
-  if(!rows.length){ alert('ไม่มีข้อมูล'); return }
-  const blob=new Blob([toCSV(rows)],{type:'text/csv;charset=utf-8'})
-  saveAs(blob, `${kind}-${new Date().toISOString().slice(0,10)}.csv`)
-}
-function exportPlanExcel(){
-  const p = window._lastPlan; if(!p){ alert('ยังไม่มีแผน'); return }
-  const summary=[ ['ชื่อแผน', p.name], ['วันที่', p.date], ['จำนวนรถ', p.routes.length], ['ระยะทางรวม (กม.)', p.totalKm], ['ต้นทุนรวม (บาท)', p.totalCost], ['ปริมาณรวม (ตัน)', p.totalW], ['ปริมาตรรวม (ลบ.ม.)', p.totalV] ]
-  const routes=[['Route','ทะเบียน','ประเภท','ลำดับ','ลูกค้า','ตัน','ลบ.ม.','Lat','Lng','ระยะทาง(กม.)','ต้นทุน(บาท)']]
-  p.routes.forEach((r,i)=>{
-    r.orders.forEach((o,idx)=> routes.push([i+1, r.vehicle.plate, r.vehicle.type||'', idx+1, `${o.code}-${o.name}`, o.w, o.v, o.lat, o.lng, '', '']))
-    routes.push([i+1, r.vehicle.plate, r.vehicle.type||'', '', 'รวม', r.orders.reduce((s,x)=>s+x.w,0), r.orders.reduce((s,x)=>s+x.v,0), '', '', r.distanceKm, r.cost])
-  })
-  const wb=XLSX.utils.book_new(); const ws1=XLSX.utils.aoa_to_sheet(summary); const ws2=XLSX.utils.aoa_to_sheet(routes)
-  XLSX.utils.book_append_sheet(wb, ws1, 'Summary'); XLSX.utils.book_append_sheet(wb, ws2, 'Routes')
-  const out=XLSX.write(wb, {bookType:'xlsx', type:'array'})
-  saveAs(new Blob([out],{type:'application/octet-stream'}), `plan-${p.name}.xlsx`)
-}
+    if (!originTxt || Number.isNaN(origin_lat) || Number.isNaN(origin_lng))
+      return alert("กรอก Origin เป็น lat,lng เช่น 13.75,100.50");
 
-const val=id=>qs('#'+id)?.value||''
-const setVal=(id,v)=>{ const el=qs('#'+id); if(el) el.value=v }
+    if (!lines.length) return alert("เพิ่มรายการลูกค้าอย่างน้อย 1 แถว");
 
-async function seedCustomers(){
-  const demo = [
-    {code:'C001', name:'บริษัท เอ', lat:13.75, lng:100.50},
-    {code:'C002', name:'บริษัท บี', lat:14.05, lng:100.60},
-    {code:'C003', name:'บริษัท ซี', lat:13.90, lng:100.35}
-  ]
-  for(const x of demo){
-    await fetch(`${API()}/customers`, {method:'POST', headers:{'Content-Type':'application/json', ...authHeader()}, body: JSON.stringify({contact:'', type:'', hours:'', note:'', addr:'', ...x})})
+    const payload = { name, date, origin_lat, origin_lng, lines };
+    const res = await api("/plans/optimize", { method: "POST", json: payload });
+
+    renderPlanResult(res);
+  } catch (e) {
+    alert("วิเคราะห์แผนไม่ได้: " + e.message);
   }
-  loadCustomers(); rebuildPlanCustomerOptions()
-}
-async function seedVehicles(){
-  const demo = [
-    {plate:'6W-001', type:'6W', capW:12, capV:24, owner:'SUB', costPerKm:20, status:'ready'},
-    {plate:'10W-002', type:'10W', capW:20, capV:45, owner:'OWN', costPerKm:28, status:'ready'}
-  ]
-  for(const v of demo){
-    await fetch(`${API()}/vehicles`, {method:'POST', headers:{'Content-Type':'application/json', ...authHeader()}, body: JSON.stringify(v)})
-  }
-  loadVehicles()
 }
 
-window.addEventListener('DOMContentLoaded', ()=>{ addPlanRow(); addPlanRow(); })
+function renderPlanResult(plan) {
+  // Summary
+  const s = $("#plan_summary");
+  s.innerHTML = `
+    <div class="metric"><div class="k">รวมระยะทาง</div><div class="v">${(plan.totalKm||0).toFixed(2)} km</div></div>
+    <div class="metric"><div class="k">รวมต้นทุน</div><div class="v">${(plan.totalCost||0).toFixed(2)}</div></div>
+    <div class="metric"><div class="k">รวมตัน</div><div class="v">${(plan.totalW||0).toFixed(2)}</div></div>
+    <div class="metric"><div class="k">รวมลบ.ม.</div><div class="v">${(plan.totalV||0).toFixed(2)}</div></div>
+  `;
+
+  // Routes
+  const box = $("#routes_container");
+  box.innerHTML = "";
+  plan.routes.forEach((r, idx) => {
+    const div = document.createElement("div");
+    const orders = (r.orders||[]).map(o => `${o.code} (${o.w||0}/${o.v||0})`).join(" → ");
+    div.className = "p-3 rounded-xl border";
+    div.innerHTML = `
+      <div class="font-semibold">คันที่ ${idx+1} • ${r.vehicle?.plate || "-"}</div>
+      <div class="text-sm text-gray-600">ระยะทาง ${(r.distanceKm||0).toFixed(2)} km • ต้นทุน ${(r.cost||0).toFixed(2)}</div>
+      <div class="mt-1">${orders || "-"}</div>
+    `;
+    box.appendChild(div);
+  });
+
+  drawMap(plan);
+}
+
+let _map, _layerGroup;
+function ensureMap() {
+  if (!_map) {
+    _map = L.map("map").setView([13.7563, 100.5018], 10);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap",
+    }).addTo(_map);
+    _layerGroup = L.layerGroup().addTo(_map);
+  } else {
+    _layerGroup.clearLayers();
+  }
+}
+
+function drawMap(plan) {
+  ensureMap();
+  const origin = [plan.origin_lat, plan.origin_lng];
+  const bounds = [];
+
+  // mark origin
+  L.marker(origin).addTo(_layerGroup).bindPopup("Origin");
+  bounds.push(origin);
+
+  (plan.routes||[]).forEach((r, idx) => {
+    const pts = [origin].concat((r.orders||[]).map(o => [o.lat, o.lng])).concat([origin]);
+    bounds.push(...pts);
+    L.polyline(pts, { weight: 4 }).addTo(_layerGroup).bindPopup(`Route ${idx+1}`);
+    pts.slice(1, -1).forEach((p, i) => {
+      L.circleMarker(p, { radius: 5 }).addTo(_layerGroup).bindTooltip(r.orders[i].code);
+    });
+  });
+
+  if (bounds.length) _map.fitBounds(bounds);
+}
+
+// ===== Export (ตัวอย่างพื้นฐาน) =====
+function exportRaw(kind) {
+  const el = document.createElement("a");
+  el.href = `${window.API_BASE}/${kind}`;
+  el.target = "_blank";
+  el.click();
+}
+
+function exportPlanExcel() {
+  // สร้าง Excel แบบเร็ว ๆ จาก DOM Summary (ต้องมี xlsx.js)
+  try {
+    const wb = XLSX.utils.book_new();
+    const rows = [];
+    $$("#routes_container > div").forEach((div, i) => {
+      const title = div.querySelector(".font-semibold")?.textContent || `Route ${i+1}`;
+      const info  = div.querySelector(".text-sm")?.textContent || "";
+      const seq   = div.querySelector("div.mt-1")?.textContent || "";
+      rows.push([title, info, seq]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet([["Route","Info","Sequence"], ...rows]);
+    XLSX.utils.book_append_sheet(wb, ws, "Routes");
+    const out = XLSX.write(wb, { bookType:"xlsx", type:"array" });
+    saveAs(new Blob([out]), "plan.xlsx");
+  } catch(e) {
+    alert("Export Excel ไม่สำเร็จ: " + e.message);
+  }
+}
+
+// ===== Init =====
+window.addEventListener("DOMContentLoaded", () => {
+  if (TOKEN) setStatus("พบ token แล้ว พร้อมใช้งาน");
+  loadCustomers().catch(()=>{});
+  loadVehicles().catch(()=>{});
+  if (!$("#plan_lines").children.length) addPlanRow();
+});
+
+// expose to global
+window.openTab = openTab;
+window.register = register;
+window.login = login;
+window.loadCustomers = loadCustomers;
+window.saveCustomer = saveCustomer;
+window.deleteCustomer = deleteCustomer;
+window.seedCustomers = seedCustomers;
+window.loadVehicles = loadVehicles;
+window.saveVehicle = saveVehicle;
+window.deleteVehicle = deleteVehicle;
+window.seedVehicles = seedVehicles;
+window.addPlanRow = addPlanRow;
+window.analyzePlan = analyzePlan;
+window.exportPlanExcel = exportPlanExcel;
+window.exportRaw = exportRaw;
+
