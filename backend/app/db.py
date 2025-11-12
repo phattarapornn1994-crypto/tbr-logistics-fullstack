@@ -1,24 +1,18 @@
-from sqlmodel import SQLModel, Session, create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
-from pydantic_settings import BaseSettings
-from functools import lru_cache
+# backend/app/db.py
+import os
+from sqlmodel import SQLModel, Session, create_engine
 
-class Settings(BaseSettings):
-    DATABASE_URL: str = "sqlite:///./data/logistics.db"
+# อ่านจาก Environment ของ Render (ถ้าไม่ตั้งไว้จะตกไปใช้ SQLite ชั่วคราว)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/logistics.db")
 
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
+# เปิด pool_pre_ping เพื่อกัน stale connection กับ Supabase Pooler
+engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
 
-def _engine():
-    url = get_settings().DATABASE_URL
-    return create_engine(url, echo=False)
-
-engine = _engine()
-
-def init_db():
-    from . import models  # register models
+def init_db() -> None:
+    # สร้างตารางตาม models ที่ประกาศในโปรเจกต์
     SQLModel.metadata.create_all(engine)
 
 def get_session():
+    # Dependency สำหรับ FastAPI routes
     with Session(engine) as session:
         yield session
