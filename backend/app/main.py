@@ -30,6 +30,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Serve frontend ---
+import os
+from fastapi.staticfiles import StaticFiles
+
+FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
+app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+# ----------------------
+
 security = HTTPBearer()
 
 def create_token(sub: str) -> str:
